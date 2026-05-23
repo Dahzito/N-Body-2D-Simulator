@@ -246,7 +246,7 @@ def Visualize(energy_reset_period=6000):
             line.set_data(time_data, energy_list)
 
         # Build info text with collision history
-        info_lines = [f"Time passed: {current_time:.1f} days", f"Timestep: {δt} days"]
+        info_lines = [f"Time passed: {current_time:.1f} days | {current_time / 365.25:.1f} years", f"Timestep: {δt} days"]
         
         # Show last 3 collisions
         recent_collisions = collisions[-3:] if collisions else []
