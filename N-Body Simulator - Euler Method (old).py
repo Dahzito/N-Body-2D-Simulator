@@ -1,0 +1,227 @@
+from math import*
+from sys import*
+from os import*
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+
+δt:float = 2 #days
+Δt:float = 2000.0 #days
+
+G = 6.67430 * 10**-11
+
+_t = 24*3600 #Conversion factor from days to seconds
+
+MAX_TRAIL = 500
+
+class Body:
+        def __init__(self, mass, acc, vel, coord, name):
+            self.mass = mass
+            self.acceleration = list(acc)   # List as [acc_x, acc_y]
+            self.velocity = list(vel)       # List as [vel_x, vel_y]
+            self.coordinates = list(coord)  # List as [coord_x, coord_y]
+            self.name = name
+
+bodies = []
+
+bodies.append(Body(2.05*10**30, [0,0], [0, -25000], [-1.496e11, 0], "Star 1"))
+
+bodies.append(Body(5.82*10**30, [0,0], [0,22000], [1.496e11, 0], "Star 2"))
+
+bodies.append(Body(4.867*10**28, [0,0], [0,31020], [1.07e12, 0], "Star 3"))
+#Mass, acceleration, velocity, coordinates; [0], [1][0,1], [2][0,1], [3][0,1]
+
+def Acceleration():
+
+    #Calculate the distance of every object on the class Body
+    for b in range(len(bodies)):
+        bodies[b].acceleration = [0 , 0]
+        
+    for i in range(len(bodies)):
+        for j in range(len(bodies)):
+            if i != j:
+                dx = bodies[j].coordinates[0] - bodies[i].coordinates[0]
+                dy = bodies[j].coordinates[1] - bodies[i].coordinates[1]
+
+                r = sqrt(dx**2 + dy**2)
+
+                bodies[i].acceleration[0] += (G * bodies[j].mass * dx) / r**3
+                bodies[i].acceleration[1] += (G * bodies[j].mass * dy) / r**3
+
+
+def Velocity():
+    for n in range(len(bodies)):
+        bodies[n].velocity[0] += bodies[n].acceleration[0] * δt * _t
+        bodies[n].velocity[1] += bodies[n].acceleration[1] * δt * _t
+
+def Coordinates():
+    for x in range(len(bodies)):
+        bodies[x].coordinates[0] += bodies[x].velocity[0] * δt * _t
+        bodies[x].coordinates[1] += bodies[x].velocity[1] * δt * _t
+
+
+#------ Visualization of the 3 Body system using Matplotlib ------
+
+def calculate_energy():
+    energies = [0] 
+    #First value is for the total energy of the system, then each body will have its own energy value
+
+    for i in range(len(bodies)):
+        b = bodies[i]
+        kinetic_energy = 0.5 * b.mass * (b.velocity[0]**2 + b.velocity[1]**2)
+
+        # Potential energy: -G * m1 * m2 / r
+        potential_energy = 0
+        for j in range(len(bodies)):
+            if i != j:
+                dx = bodies[j].coordinates[0] - b.coordinates[0]
+                dy = bodies[j].coordinates[1] - b.coordinates[1]
+                r = sqrt(dx**2 + dy**2)
+                potential_energy -= 0.5 * (G * b.mass * bodies[j].mass) / r
+
+        # Total energy
+        total_energy = kinetic_energy + potential_energy
+        energies[0] += total_energy
+        energies.append(total_energy)
+
+
+
+    return energies
+
+
+def Visualize(energy_reset_period=2000):
+    """Visualize the n-body system with energy tracking.
+    
+    Args:
+        energy_reset_period: Reset the energy graph every N days (default: 365)
+    """
+    fig, (ax, ax_energy) = plt.subplots(1, 2, figsize=(14, 6), gridspec_kw={'width_ratios': [1, 1.2]})
+    ax.set_aspect('equal')
+
+    # auto limits based on initial system
+    max_r = max(max(abs(x.coordinates[0]), abs(x.coordinates[1])) for x in bodies)
+    limit = max(max_r * 2, 1e10)
+
+    ax.set_xlim(-limit, limit)
+    ax.set_ylim(-limit, limit)
+    ax.set_xlabel("x coordinates (m)")
+    ax.set_ylabel("y coordinates (m)")
+
+    colors = ["#FFBB00", "#424242F8", "#CA9B00", "#00329E", "#C92F00", "#8B7200", "#FFE054", "#00A1FF"]
+
+    points = []
+    trails = []
+
+    trails_x = [[] for _ in bodies]
+    trails_y = [[] for _ in bodies]
+
+    for i, b in enumerate(bodies):
+        p, = ax.plot([], [], 'o', color=colors[i % len(colors)], markersize=6)
+        t, = ax.plot([], [], color=colors[i % len(colors)], linewidth=1)
+
+        points.append(p)
+        trails.append(t)
+
+    info_text = ax.text(
+        0.02,
+        0.98,
+        '',
+        transform=ax.transAxes,
+        fontsize=10,
+        verticalalignment='top',
+        bbox=dict(facecolor='black', alpha=0.6, boxstyle='round,pad=0.4'),
+        color='white'
+    )
+
+    # Energy plot setup
+    initial_energies = calculate_energy()
+    energy_lines = []
+    energy_data = [[e] for e in initial_energies]
+    time_data = [0.0]
+
+    limit = max(abs(e) for e in initial_energies) * 1.5 if initial_energies else 1.0
+
+    for i in range(len(initial_energies)):
+        label = "Entire System" if i == 0 else bodies[i-1].name
+        line, = ax_energy.plot(time_data, energy_data[i], label=label, color=colors[i-1 % len(colors)])
+        energy_lines.append(line)
+
+    ax_energy.set_xlim(0, energy_reset_period)
+    ax_energy.set_ylim(-limit, limit)  # Adjust limits as needed
+    ax_energy.set_xlabel("Time (days)")
+    ax_energy.set_ylabel("Total Mechanical Energy (J)")
+    ax_energy.legend()
+
+    # Track loop iterations for continuous time display
+    loop_count = [0]
+    previous_frame = [0]
+    last_reset_time = [0]
+
+    def init():
+        return points + trails + energy_lines
+
+    def update(frame):
+        # Detect when animation loops back to start
+        if frame < previous_frame[0]:
+            loop_count[0] += 1
+        previous_frame[0] = frame
+
+        Acceleration()
+        Velocity()
+        Coordinates()
+
+        for i, b in enumerate(bodies):
+
+            trails_x[i].append(b.coordinates[0])
+            trails_y[i].append(b.coordinates[1])
+
+            if len(trails_x[i]) > MAX_TRAIL:
+                trails_x[i].pop(0)
+                trails_y[i].pop(0)
+
+            points[i].set_data([b.coordinates[0]], [b.coordinates[1]])
+            trails[i].set_data(trails_x[i], trails_y[i])
+
+        frame_limit_reached_n = 0
+        if frame*δt >= Δt - δt:
+            frame_limit_reached_n += 1
+
+        # Update energy data
+        energies = calculate_energy()
+        current_time = frame + loop_count[0] * Δt
+
+        # Reset energy graph if it exceeds the reset period
+        time_since_reset = current_time - last_reset_time[0]
+        if time_since_reset >= energy_reset_period:
+            last_reset_time[0] = current_time
+            energy_data[:] = [[] for _ in energies]
+            time_data[:] = []
+            time_since_reset = 0
+
+        time_data.append(time_since_reset)
+        for energy_list, line, energy in zip(energy_data, energy_lines, energies):
+            energy_list.append(energy)
+            line.set_data(time_data, energy_list)
+
+        info_text.set_text(
+            f"Time passed: {current_time:.1f} days\nTimestep: {δt} days"
+        )
+
+        ax_energy.set_xlim(0, energy_reset_period)
+        return points + trails + energy_lines + [info_text]
+
+    ani = FuncAnimation(
+        fig,
+        update,
+        frames=np.arange(0, Δt, δt),
+        init_func=init,
+        interval=5,
+        blit=True,
+        repeat=True
+    )
+
+    plt.show()
+
+# ---------------- RUN PROGRAM ----------------
+
+Visualize()
