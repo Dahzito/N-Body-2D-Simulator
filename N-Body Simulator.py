@@ -53,11 +53,13 @@ class Body:
 
 bodies = []
 
-bodies.append(Body(1.99*10**30, [0,0], [0, 0], [0, 0], "Star", 6.96e8, 0, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1]))
+bodies.append(Body(1.99*10**30, [0,0], [0, -25080], [-1.5e11, 0], "Star 1", 6.96e8, 5878, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1]))
 
-bodies.append(Body(6.54*10**14, [0,0], [0, 22580], [2.5e10, 0], "Comet 1", 3.5e3, 280, 0.7, 100, 0, "Asteroid", [0, 0.5007843137, 0.6521568627, 0.8]))
+bodies.append(Body(5.97*10**30, [0,0], [0, 22080], [1.5e11, 0], "Star 2", 6.37e4, 6578, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1]))
 
-bodies.append(Body(1.58*10**27, [0,0], [0, 27800], [5.5e10, 0], "Planet 2", 3.5e6, 280, 0.4, 900, 0, "Planet", [0.768627451, 0.4980392157, 0.3176470588, 0.8]))
+bodies.append(Body(1.898*10**28, [0,0], [0, 73270], [3.0e11, 0], "Star 3", 7.15e7, 4578, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1]))
+
+bodies.append(Body(2.54*10**24, [0,0], [0, 45080], [2.5e11, 0], "Planet 1", 6.3e6, 280, 0.15, 2500, 0, "Planet", [0.768627451, 0.4980392157, 0.3176470588, 0.8]))
 #Mass, acceleration, velocity, coordinates, name, radii, temperature, albedo, temp_threshold, flux, type, RGB colors;
 
 def Update_():
@@ -147,13 +149,29 @@ def Update_():
             bodies[i].temperature = (bodies[i].luminosity / (4 * pi * bodies[i].radii**2 * σ))**0.25
             bodies[i].wavelength = b / bodies[i].temperature
 
+            T_scaled = max(10, min(400, bodies[i].temperature / 100))
             # RGB color calculation based on temperature using a simplified blackbody approximation
-            T_scaled = bodies[i].temperature / 100
+            if T_scaled <= 66:
+                bodies[i].rgb[0] = 1
+            else:
+                bodies[i].rgb[0] = (329.698727446 * ((T_scaled - 60) ** -0.133205)) / 255
 
-            bodies[i].rgb[0] = 1 if T_scaled <= 66 else (329.698727 * ((T_scaled - 60))** -0.133205) / 255
-            bodies[i].rgb[1] = (99.470803 * (log(T_scaled)) - 161.119568)/255 if T_scaled <= 66 else (288.122170 * ((T_scaled - 60))** -0.075515)/255
-            bodies[i].rgb[2] = 1 if T_scaled >= 66 else (138.517731 * (log(T_scaled - 10)) - 305.044793)/255 if 19 < T_scaled < 66 else 0
-        
+            if T_scaled <= 66:
+                bodies[i].rgb[1] = (99.4708025861 * log(T_scaled) - 161.1195681661) / 255
+            else:
+                bodies[i].rgb[1] = (288.1221695283 * ((T_scaled - 60) ** -0.0755148492)) / 255
+
+            if T_scaled >= 66:
+                bodies[i].rgb[2] = 1
+            elif T_scaled <= 19:
+                bodies[i].rgb[2] = 0
+            else:
+                bodies[i].rgb[2] = (138.5177312231 * log(T_scaled - 10) - 305.0447927307) / 255
+
+            bodies[i].rgb[0] = max(0, min(1, bodies[i].rgb[0]))
+            bodies[i].rgb[1] = max(0, min(1, bodies[i].rgb[1]))
+            bodies[i].rgb[2] = max(0, min(1, bodies[i].rgb[2]))
+
         else: 
             if temp_new > bodies[i].temperature: bodies[i].temperature = temp_new
 
@@ -416,7 +434,6 @@ def Visualize(energy_reset_period=Δt):
 
     ax_energy.set_xlim(0, energy_reset_period)
     ax_energy.set_ylim(-limit, limit)  # Adjust limits as needed
-    ax_energy.set_xlabel("Time (days)", fontsize=10)
     ax_energy.set_ylabel("Total Mechanical Energy (J)", fontsize=10)
     ax_energy.legend()
 
@@ -454,7 +471,6 @@ def Visualize(energy_reset_period=Δt):
 
     ax_mass.set_xlim(0, energy_reset_period)
     ax_mass.set_ylim(0, limit)
-    ax_mass.set_xlabel("Time (days)", fontsize=10)
     ax_mass.set_ylabel("Mass (kg)", fontsize=10)
     ax_mass.legend()
 
@@ -473,7 +489,6 @@ def Visualize(energy_reset_period=Δt):
 
     ax_flux.set_xlim(0, energy_reset_period)
     ax_flux.set_ylim(0, limit)
-    ax_flux.set_xlabel("Time (days)", fontsize=10)
     ax_flux.set_ylabel("Flux received (W/m²)", fontsize=10)
     ax_flux.legend()
 
