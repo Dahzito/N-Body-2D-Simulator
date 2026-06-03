@@ -1,13 +1,16 @@
 from math import*
 from sys import*
 from os import*
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
 δt:float = 3 #days
 δt_default:float = 2 #default timestep for normal conditions
-Δt:float = 24000.0 #days
+Δt:float = 10000.0 #days
+
+Δt_reset:float = 500.0 
 
 ε:float = 0 #Gravitational softening
 force_temp:float = 0 #Temporary variable for storing gravitational force
@@ -27,7 +30,11 @@ class Body:
             self.acceleration = list(acc)   # List as [acc_x, acc_y]
             self.velocity = list(vel)       # List as [vel_x, vel_y]
             self.coordinates = list(coord)  # List as [coord_x, coord_y]
-            self.prev_acceleration = list(acc)  # Store previous acceleration for velocity Verlet
+            self.prev_acceleration = list(acc)  # Store previous acceleration for velocity Verlet~
+
+            self.force = 0
+
+            self.potential_energy = 0; self.kinetic_energy = 0; self.mechanical_energy = 0
 
             #Physical Properties 
             self.name = name
@@ -109,20 +116,19 @@ def Update_():
                             bodies[i].status = "Torn Apart"
 
         body_forces[i] = sqrt(force_temp_dx**2 + force_temp_dy**2)
+        bodies[i].force = body_forces[i]
         
 
 
     #adaptative timestep based on minimum distance to improve accuracy during close encounters
-    if min(radius) < 1e7: δt = 0.00025
-    elif min(radius) < 1e8: δt = 0.0005
-    elif min(radius) < 1e9: δt = 0.005
-    elif min(radius) < 6e9: δt = 0.025
-    elif min(radius) < 5e10: δt = 0.05
-    elif min(radius) < 2e11: δt = 0.5
-    elif min(radius) >  3e11: δt = δt_default 
-    
-    dt_seconds = δt * _t
+    r = np.min(radius)
 
+    δt = np.clip(
+        δt_default * (r / 3e11)**1.02, # Scale timestep based on distance (with a power law for smoother changes)
+        0.01,
+        δt_default
+        )
+    
     # Calculate temperature and mass loss after all flux has been accumulated
     for i in range(len(bodies)):
         temp_new = (bodies[i].flux * ((1 - bodies[i].albedo) / σ))**0.25
@@ -220,6 +226,7 @@ def calculate_energy():
     for i in range(len(bodies)):
         b = bodies[i]
         kinetic_energy = 0.5 * b.mass * (b.velocity[0]**2 + b.velocity[1]**2)
+        bodies[i].kinetic_energy = kinetic_energy
 
         # Potential energy: -G * m1 * m2 / r
         potential_energy = 0
@@ -230,8 +237,11 @@ def calculate_energy():
                 r = sqrt(dx**2 + dy**2 + ε**2)
                 potential_energy -= 0.5 * (G * b.mass * bodies[j].mass) / r
 
+                bodies[i].potential_energy = potential_energy
+
         # Total energy
         total_energy = kinetic_energy + potential_energy
+        bodies[i].mechanical_energy = total_energy
         energies[0] += total_energy
         energies.append(total_energy)
 
@@ -261,7 +271,7 @@ def calculate_forces():
 
 
 
-def Visualize(energy_reset_period=Δt):
+def Visualize(energy_reset_period=Δt_reset):
     plt.rcParams['font.family'] = 'monospace'
     plt.rcParams['font.weight'] = 'normal'
     plt.style.use('ggplot')
@@ -272,6 +282,13 @@ def Visualize(energy_reset_period=Δt):
         force_reset_period: Reset the force graph every N days (default: 365)
     """
     fig = plt.figure(figsize=(24, 18))
+    save_template = os.path.join(
+        os.path.expanduser("~"),
+        "Downloads",
+        "N-Body Simulator - Adaptative timestep and y lim test 4 - Subplot save {num}.png"
+    )
+    save_count = [1]
+    next_save_time = [energy_reset_period - 5.0]
     manager = plt.get_current_fig_manager()
 
     try:
@@ -510,27 +527,27 @@ def Visualize(energy_reset_period=Δt):
     ax_temperature.set_ylabel("Temperature of the body (K)", fontsize=10)
     ax_temperature.legend()
 
-    # Track loop iterations for continuous time display
-    loop_count = [0]
-    previous_frame = [0]
-    last_reset_time_energy = [0]
-    last_reset_time_force = [0]
-    last_reset_time_mass = [0]
-    last_reset_time_flux = [0]
-    last_reset_time_temperature = [0]
+    # Track simulation time for adaptive timestep and plotting
+    simulation_time = [0.0]
+    last_reset_time_energy = [0.0]
+    last_reset_time_force = [0.0]
+    last_reset_time_mass = [0.0]
+    last_reset_time_flux = [0.0]
+    last_reset_time_temperature = [0.0]
     collisions = []  # Track collision events: (frame, time, body1, body2)
-    statuses = [] # List to track collision events as tuples: (frame, time, message)
+    statuses = []  # List to track collision events as tuples: (frame, time, message)
+
+    def frame_generator():
+        while simulation_time[0] < Δt:
+            yield None
 
     def init():
         return points + trails + archived_trails + energy_lines + archived_energy_lines + force_lines + archived_force_lines + mass_lines + archived_mass_lines + flux_lines + archived_flux_lines + temperature_lines + archived_temperature_lines
 
     def update(frame):
-        # Detect when animation loops back to start
-        if frame < previous_frame[0]:
-            loop_count[0] += 1
-        previous_frame[0] = frame
-
         Update_()
+        simulation_time[0] += δt
+        current_time = simulation_time[0]
 
         for i, b in enumerate(bodies):
 
@@ -544,16 +561,14 @@ def Visualize(energy_reset_period=Δt):
             points[i].set_data([b.coordinates[0]], [b.coordinates[1]])
             trails[i].set_data(trails_x[i], trails_y[i])
 
-        frame_limit_reached_n = 0
-        if frame*δt >= Δt - δt:
-            frame_limit_reached_n += 1
-
         # Update energy data
         energies = calculate_energy()
         forces = calculate_forces()
-        current_time = frame + loop_count[0] * Δt
 
-        # Reset energy graph if it exceeds the reset period
+        # Use the actual adaptive timestep clock
+        current_time = simulation_time[0]
+
+        #-------------------------------------------- Reset energy graph if it exceeds the reset period --------------------------------------------
         time_since_reset_energy = current_time - last_reset_time_energy[0]
         if time_since_reset_energy >= energy_reset_period:
             last_reset_time_energy[0] = current_time
@@ -561,7 +576,7 @@ def Visualize(energy_reset_period=Δt):
             time_data[:] = []
             time_since_reset_energy = 0
 
-        # Reset force graph if it exceeds the reset period
+        #-------------------------------------------- Reset force graph if it exceeds the reset period --------------------------------------------
         time_since_reset_force = current_time - last_reset_time_force[0]
         if time_since_reset_force >= energy_reset_period:
             last_reset_time_force[0] = current_time
@@ -579,7 +594,7 @@ def Visualize(energy_reset_period=Δt):
             force_list.append(force)
             line.set_data(time_data_f, force_list)
 
-        # Handle mass, flux, and temperature resets and updates
+        #-------------------------------------------- Handle mass, flux, and temperature resets and updates --------------------------------------------
         time_since_reset_mass = current_time - last_reset_time_mass[0]
         if time_since_reset_mass >= energy_reset_period:
             last_reset_time_mass[0] = current_time
@@ -617,8 +632,8 @@ def Visualize(energy_reset_period=Δt):
             temp_list.append(b.temperature)
             line.set_data(time_data_temperature, temp_list)
 
-        # Build info text with collision history
-        info_lines = [f"Time passed: {current_time:.1f} days | {current_time / 365.25:.1f} years", f"Timestep: {δt} days"]
+        #-------------------------------------------- Build info text with collision history --------------------------------------------
+        info_lines = [f"Time passed: {current_time:.1f} days | {current_time / 365.25:.1f} years", f"Timestep: {round(δt, 4)} days"]
         
         # Show last 3 collisions
         recent_collisions = collisions[-3:] if collisions else []
@@ -642,30 +657,95 @@ def Visualize(energy_reset_period=Δt):
         ax_flux.set_xlim(0, energy_reset_period)
         ax_temperature.set_xlim(0, energy_reset_period)
 
-        # Dynamic y-limit updates based on current data        
-        """
-        if mass_data and any(mass_data):
-            max_mass = max(max(m) for m in mass_data if m)
-            ax_mass.set_ylim(0, max_mass * 1.2)
-        """
+        #-------------------------------------------- Dynamic y-limit updates based on current data (per-body) --------------------------------------------
+        # Choose a body index to focus on (clamp to available bodies)
+        body_index = max(0, min(3, len(bodies) - 1))
+
+        # Mass axis: compare against the focused body's own history
+        if mass_data and len(mass_data) > body_index:
+            body_mass_history = mass_data[body_index]
+            focused_mass = bodies[body_index].mass
+            if body_mass_history:
+                current_body_max = max(body_mass_history)
+            else:
+                current_body_max = 0
+            if focused_mass >= current_body_max:
+                ax_mass.set_ylim(bodies[body_index].mass - 10**14, focused_mass * 1.0 + 10**14)
+
+        # Energy axis: energy_data[0] is whole-system; per-body energy is at index body_index + 1
+        eidx = body_index + 1
+
         if energy_data and any(energy_data):
             max_energy = max(max(e) for e in energy_data if e)
             min_energy = min(min(e) for e in energy_data if e)
             ax_energy.set_ylim(min_energy * 1.2, max_energy * 1.2)
+        """
+        if energy_data and len(energy_data) > eidx:
+            body_energy_history = energy_data[eidx]
+            focused_energy = bodies[body_index].mechanical_energy
+            if body_energy_history:
+                current_body_max_e = max(body_energy_history)
+                current_body_min_e = min(body_energy_history)
+                current_extreme = max(abs(current_body_min_e), abs(current_body_max_e))
+            else:
+                current_extreme = 0
+            if abs(focused_energy) >= current_extreme:
+                max_energy = abs(focused_energy)
+                min_energy = -max_energy
+                ax_energy.set_ylim(min_energy * 1.2, max_energy * 1.2)
+        """
 
+        # Force axis: compare against the focused body's own force history
         if force_data and any(force_data):
             max_force = max(max(f) for f in force_data if f)
             ax_force.set_ylim(0, max_force * 1.2)
 
-        if flux_data and any(flux_data):
-            max_flux = max(max(f) for f in flux_data if f)
-            ax_flux.set_ylim(0, max_flux * 1.2)
-        
-        if temperature_data and any(temperature_data):
-            max_temp = max(max(t) for t in temperature_data if t)
-            ax_temperature.set_ylim(0, max_temp * 1.2)
-        
-        # Check for collisions between all body pairs
+        """
+        if force_data and len(force_data) > body_index:
+            body_force_history = force_data[body_index]
+            focused_force = bodies[body_index].force
+            if body_force_history:
+                current_body_max_f = max(body_force_history)
+            else:
+                current_body_max_f = 0
+            if focused_force >= current_body_max_f:
+                ax_force.set_ylim(0, focused_force * 1.2)
+        """
+
+        # Flux axis
+        if flux_data and len(flux_data) > body_index:
+            body_flux_history = flux_data[body_index]
+            focused_flux = bodies[body_index].flux
+            if body_flux_history:
+                current_body_max_flux = max(body_flux_history)
+            else:
+                current_body_max_flux = 0
+            if focused_flux >= current_body_max_flux:
+                ax_flux.set_ylim(0, focused_flux * 1.2)
+
+        # Temperature axis
+        if temperature_data and len(temperature_data) > body_index:
+            body_temp_history = temperature_data[body_index]
+            focused_temp = bodies[body_index].temperature
+            if body_temp_history:
+                current_body_max_temp = max(body_temp_history)
+            else:
+                current_body_max_temp = 0
+            if focused_temp >= current_body_max_temp:
+                ax_temperature.set_ylim(0, focused_temp * 1.2)
+
+        #-------------------------------------------- Save the current figure automatically 50 days before each reset period. --------------------------------------------
+        while current_time >= next_save_time[0] and next_save_time[0] <= Δt:
+            save_path = save_template.format(num=save_count[0])
+            try:
+                fig.savefig(save_path, dpi=200, bbox_inches='tight')
+                print(f"Saved plot automatically to: {save_path}")
+            except Exception as e:
+                print(f"Failed to save pre-reset plot: {e}")
+            save_count[0] += 1
+            next_save_time[0] += energy_reset_period
+
+        #-------------------------------------------- Check for collisions between all body pairs --------------------------------------------
         for i in range(len(bodies)):
             for j in range(i + 1, len(bodies)):
                 dx = bodies[j].coordinates[0] - bodies[i].coordinates[0]
@@ -675,7 +755,7 @@ def Visualize(energy_reset_period=Δt):
                 if r < (bodies[i].radii + bodies[j].radii):
                     collision_msg = f"Collision: {bodies[i].name} & {bodies[j].name}"
                     collisions.append((frame, current_time, collision_msg))
-                    print(f"Collision detected between {bodies[i].name} and {bodies[j].name} at time {frame*δt:.2f} days!")
+                    print(f"Collision detected between {bodies[i].name} and {bodies[j].name} at time {current_time:.2f} days!")
                     # Simple collision response: merge bodies (conservation of mass and momentum)
                     total_mass = bodies[i].mass + bodies[j].mass
                     new_velocity_x = (bodies[i].velocity[0] * bodies[i].mass + bodies[j].velocity[0] * bodies[j].mass) / total_mass
@@ -693,7 +773,7 @@ def Visualize(energy_reset_period=Δt):
                     break
             
             if bodies[i].mass <= 0 or bodies[i].status in ["Torn Apart", "Reached Roche Limit", "Extreme Mass Loss"]:
-                print(f"{bodies[i].name} was lost at {frame*δt:.2f} days")
+                print(f"{bodies[i].name} was lost at {current_time:.2f} days")
                 status_msg = f"{bodies[i].name} lost: {bodies[i].status}"
                 statuses.append((frame, current_time, status_msg))
                 remove_body(i)
@@ -706,7 +786,7 @@ def Visualize(energy_reset_period=Δt):
     ani = FuncAnimation(
         fig,
         update,
-        frames=np.arange(0, Δt, δt),
+        frames=frame_generator(),
         init_func=init,
         interval=2,
         blit=True,
