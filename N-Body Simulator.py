@@ -10,7 +10,7 @@ from matplotlib.animation import FuncAnimation
 δt_default:float = 2 #default timestep for normal conditions
 Δt:float = 10000.0 #days
 
-Δt_reset:float = 500.0 
+Δt_reset:float = 2000.0 
 
 ε:float = 0 #Gravitational softening
 force_temp:float = 0 #Temporary variable for storing gravitational force
@@ -24,7 +24,7 @@ _t = 24*3600 #Conversion factor from days to seconds
 MAX_TRAIL = 1000
 
 class Body:
-        def __init__(self, mass, acc, vel, coord, name, radii, temperature, albedo, temp_threshold, flux, type, rgb=[0, 0, 0, 1]):
+        def __init__(self, mass, acc, vel, coord, name, radii, temperature, albedo, temp_threshold, flux, type, rgb=[0, 0, 0, 1], gh=0):
             
             #Dynamic Properties
             self.acceleration = list(acc)   # List as [acc_x, acc_y]
@@ -57,17 +57,21 @@ class Body:
             self.wavelength = 0 #Wavelength of the radiation emitted by the body, using Wien's Law
             self.rgb = rgb
 
+            self.gh = gh   # Greenhouse effect factor for planets, where 0 means no greenhouse effect. 
+                           #This is a simplified model and does not account for atmospheric composition or other factors that influence greenhouse effects.
 
+            self.ΔT_gh = 0 # Temperature increase due to greenhouse effect, calculated as a fraction of the absorbed flux (simplified model)
+
+# rgba(15, 59, 141, 0.80)
 bodies = []
 
-bodies.append(Body(1.99*10**30, [0,0], [0, -25080], [-1.5e11, 0], "Star 1", 6.96e8, 5878, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1]))
+bodies.append(Body(1.989*10**30, [0,0], [0, 0], [0, 0], "Sun", 6.96e8, 5878, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1], 0))
 
-bodies.append(Body(5.97*10**30, [0,0], [0, 22080], [1.5e11, 0], "Star 2", 6.37e4, 6578, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1]))
+#bodies.append(Body(5.97*10**30, [0,0], [0, 12000], [1.5e11, 0], "Star 2", 6.37e4, 6578, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1], 0))
+#bodies.append(Body(1.898*10**28, [0,0], [0, 73270], [3.0e11, 0], "Star 3", 7.15e7, 4578, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1], 0))
 
-bodies.append(Body(1.898*10**28, [0,0], [0, 73270], [3.0e11, 0], "Star 3", 7.15e7, 4578, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1]))
-
-bodies.append(Body(2.54*10**24, [0,0], [0, 45080], [2.5e11, 0], "Planet 1", 6.3e6, 280, 0.15, 2500, 0, "Planet", [0.768627451, 0.4980392157, 0.3176470588, 0.8]))
-#Mass, acceleration, velocity, coordinates, name, radii, temperature, albedo, temp_threshold, flux, type, RGB colors;
+bodies.append(Body(5.97*10**24, [0,0], [0, 30290], [1.471e11, 0], "Earth", 6.3e6, 280, 0.3, 2500, 0, "Planet", [15/255, 59/255, 141/255, 0.80], 0.46))
+#Mass, acceleration, velocity, coordinates, name, radii, temperature, albedo, temp_threshold, flux, type, RGB colors (0-1), greenhouse effect (0-1);
 
 def Update_():
     global δt, ε, force_temp
@@ -121,17 +125,19 @@ def Update_():
 
 
     #adaptative timestep based on minimum distance to improve accuracy during close encounters
-    r = np.min(radius)
-
-    δt = np.clip(
+    try:
+        r = np.min(radius)
+        δt = np.clip(
         δt_default * (r / 3e11)**1.02, # Scale timestep based on distance (with a power law for smoother changes)
         0.01,
         δt_default
         )
+    except ValueError:
+        δt = 6*δt_default  # Default large distance if no pairs exist (e.g., single body)
     
     # Calculate temperature and mass loss after all flux has been accumulated
     for i in range(len(bodies)):
-        temp_new = (bodies[i].flux * ((1 - bodies[i].albedo) / σ))**0.25
+        temp_new = (bodies[i].flux * ((1 - bodies[i].albedo) / (4*σ)))**0.25
         
         k0 = 1e5; T0 = 1000
         k = k0 * exp(temp_new / T0)
@@ -142,10 +148,17 @@ def Update_():
         # appropriate). Do not change status here based on bulk acceleration,
         # since tidal/stress calculations are a better predictor.
         if bodies[i].type in ("Planet", "Asteroid"):
+            bodies[i].temperature = temp_new
             if bodies[i].mass <= k * dt_seconds:
                 bodies[i].status = "Extreme Mass Loss"
+            
+            if bodies[i].type == "Planet" and bodies[i].gh >0:
+                flux_in = bodies[i].flux * (1 - bodies[i].albedo) / 4
+                flux_out = (1 - bodies[i].gh) * flux_in
 
-            bodies[i].temperature = temp_new
+                bodies[i].temperature = ( (flux_in * (1+bodies[i].gh)) / σ ) ** 0.25
+
+
             if temp_new > bodies[i].temp_threshold:
                 bodies[i].mass -= k * dt_seconds
         
@@ -285,10 +298,10 @@ def Visualize(energy_reset_period=Δt_reset):
     save_template = os.path.join(
         os.path.expanduser("~"),
         "Downloads",
-        "N-Body Simulator - Adaptative timestep and y lim test 4 - Subplot save {num}.png"
+        "N-Body Simulator - Adaptative timestep and flux and greenhouse effect test 1 - Plot save {num}.png"
     )
     save_count = [1]
-    next_save_time = [energy_reset_period - 5.0]
+    next_save_time = [energy_reset_period - 2 * δt]  # Save just before the reset for better visualization of changes
     manager = plt.get_current_fig_manager()
 
     try:
@@ -507,7 +520,7 @@ def Visualize(energy_reset_period=Δt_reset):
     ax_flux.set_xlim(0, energy_reset_period)
     ax_flux.set_ylim(0, limit)
     ax_flux.set_ylabel("Flux received (W/m²)", fontsize=10)
-    ax_flux.legend()
+    #ax_flux.legend()
 
     # Temperature plot setup
     temperature_lines = []
@@ -525,7 +538,7 @@ def Visualize(energy_reset_period=Δt_reset):
     ax_temperature.set_ylim(0, limit)
     ax_temperature.set_xlabel("Time (days)", fontsize=10)
     ax_temperature.set_ylabel("Temperature of the body (K)", fontsize=10)
-    ax_temperature.legend()
+    #ax_temperature.legend()
 
     # Track simulation time for adaptive timestep and plotting
     simulation_time = [0.0]
@@ -676,9 +689,9 @@ def Visualize(energy_reset_period=Δt_reset):
         eidx = body_index + 1
 
         if energy_data and any(energy_data):
-            max_energy = max(max(e) for e in energy_data if e)
-            min_energy = min(min(e) for e in energy_data if e)
-            ax_energy.set_ylim(min_energy * 1.2, max_energy * 1.2)
+            max_energy = max(max(e_1) for e_1 in energy_data if e_1)
+            min_energy = min(min(e_2) for e_2 in energy_data if e_2)
+            ax_energy.set_ylim(min_energy * 1.2,  - min_energy * 0.3 + max_energy * 1.5)
         """
         if energy_data and len(energy_data) > eidx:
             body_energy_history = energy_data[eidx]
@@ -746,8 +759,11 @@ def Visualize(energy_reset_period=Δt_reset):
             next_save_time[0] += energy_reset_period
 
         #-------------------------------------------- Check for collisions between all body pairs --------------------------------------------
-        for i in range(len(bodies)):
-            for j in range(i + 1, len(bodies)):
+        i = 0
+        while i < len(bodies):
+            collision_occurred = False
+            j = i + 1
+            while j < len(bodies):
                 dx = bodies[j].coordinates[0] - bodies[i].coordinates[0]
                 dy = bodies[j].coordinates[1] - bodies[i].coordinates[1]
                 r = sqrt(dx**2 + dy**2)
@@ -769,17 +785,23 @@ def Visualize(energy_reset_period=Δt_reset):
                     bodies[i].coordinates = [new_coordinates_x, new_coordinates_y]
                     remove_body(j)
                     bodies.pop(j)
-                    # Exit inner loop to avoid index issues after pop
+                    collision_occurred = True
                     break
-            
+                j += 1
+
+            if collision_occurred:
+                continue
+
             if bodies[i].mass <= 0 or bodies[i].status in ["Torn Apart", "Reached Roche Limit", "Extreme Mass Loss"]:
                 print(f"{bodies[i].name} was lost at {current_time:.2f} days")
                 status_msg = f"{bodies[i].name} lost: {bodies[i].status}"
                 statuses.append((frame, current_time, status_msg))
                 remove_body(i)
                 bodies.pop(i)
-                break
-        
+                continue
+
+            i += 1
+
         return points + trails + archived_trails + energy_lines + archived_energy_lines + force_lines + archived_force_lines + mass_lines + archived_mass_lines + flux_lines + archived_flux_lines + temperature_lines + archived_temperature_lines + [info_text]
     
 
