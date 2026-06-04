@@ -60,8 +60,6 @@ class Body:
             self.gh = gh   # Greenhouse effect factor for planets, where 0 means no greenhouse effect. 
                            #This is a simplified model and does not account for atmospheric composition or other factors that influence greenhouse effects.
 
-            self.ΔT_gh = 0 # Temperature increase due to greenhouse effect, calculated as a fraction of the absorbed flux (simplified model)
-
 # rgba(15, 59, 141, 0.80)
 bodies = []
 
