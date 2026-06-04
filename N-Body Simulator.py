@@ -8,9 +8,9 @@ from matplotlib.animation import FuncAnimation
 
 δt:float = 3 #days
 δt_default:float = 2 #default timestep for normal conditions
-Δt:float = 10000.0 #days
+Δt:float = 365.25*5 #days
 
-Δt_reset:float = 2000.0 
+Δt_reset:float = 365.25
 
 ε:float = 0 #Gravitational softening
 force_temp:float = 0 #Temporary variable for storing gravitational force
@@ -41,7 +41,7 @@ class Body:
             self.radii = radii
             self.mass = mass
 
-            self.temperature = temperature  # Kelvin
+            self.temperature = temperature        # Kelvin
             self.temp_threshold = temp_threshold  # Arbitrary threshold for temperature-based effects (e.g., radiation pressure)
 
             self.gravity = G * self.mass / self.radii**2  # Surface gravity
@@ -51,16 +51,16 @@ class Body:
             self.flux = flux      # Flux received from other bodies (for energy balance calculations)
 
             #Other properties
-            self.type = type  # Type of body (e.g., "Star", "Planet", "Asteroid")
+            self.type = type        # Type of body (e.g., "Star", "Planet", "Asteroid")
             self.status = "Stable"  # Status can be "Stable", "Torn Apart", for Roche's limit effects
 
             self.wavelength = 0 #Wavelength of the radiation emitted by the body, using Wien's Law
             self.rgb = rgb
 
             self.gh = gh   # Greenhouse effect factor for planets, where 0 means no greenhouse effect. 
-                           #This is a simplified model and does not account for atmospheric composition or other factors that influence greenhouse effects.
+                           # This is a simplified model and does not account for atmospheric composition or other factors that influence greenhouse effects.
 
-# rgba(15, 59, 141, 0.80)
+# rgba(158, 158, 158, 0.80)
 bodies = []
 
 bodies.append(Body(1.989*10**30, [0,0], [0, 0], [0, 0], "Sun", 6.96e8, 5878, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1], 0))
@@ -68,7 +68,9 @@ bodies.append(Body(1.989*10**30, [0,0], [0, 0], [0, 0], "Sun", 6.96e8, 5878, 0.0
 #bodies.append(Body(5.97*10**30, [0,0], [0, 12000], [1.5e11, 0], "Star 2", 6.37e4, 6578, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1], 0))
 #bodies.append(Body(1.898*10**28, [0,0], [0, 73270], [3.0e11, 0], "Star 3", 7.15e7, 4578, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1], 0))
 
-bodies.append(Body(5.97*10**24, [0,0], [0, 30290], [1.471e11, 0], "Earth", 6.3e6, 280, 0.3, 2500, 0, "Planet", [15/255, 59/255, 141/255, 0.80], 0.46))
+bodies.append(Body(5.97*10**24, [0,0], [0, 30290], [1.471e11, 0], "Earth", 6.371e6, 280, 0.3, 2000, 0, "Planet", [15/255, 59/255, 141/255, 0.80], 0.46))
+bodies.append(Body(7.35*10**22, [0,0], [0, 31370], [1.471e11 + 363300000, 0], "Moon", 1.737e6, 280, 0.12, 2300, 0, "Planet", [158/255, 158/255, 158/255, 0.80], 0.0))
+
 #Mass, acceleration, velocity, coordinates, name, radii, temperature, albedo, temp_threshold, flux, type, RGB colors (0-1), greenhouse effect (0-1);
 
 def Update_():
@@ -124,11 +126,13 @@ def Update_():
 
     #adaptative timestep based on minimum distance to improve accuracy during close encounters
     try:
-        r = np.min(radius)
+        a_max = max(np.linalg.norm(body.acceleration)
+            for body in bodies)
+
         δt = np.clip(
-        δt_default * (r / 3e11)**1.02, # Scale timestep based on distance (with a power law for smoother changes)
+        0.01 / np.sqrt(a_max),
         0.01,
-        δt_default
+        50
         )
     except ValueError:
         δt = 6*δt_default  # Default large distance if no pairs exist (e.g., single body)
@@ -145,17 +149,14 @@ def Update_():
         # performed earlier (which sets `bodies[i].status = "Torn Apart"` when
         # appropriate). Do not change status here based on bulk acceleration,
         # since tidal/stress calculations are a better predictor.
-        if bodies[i].type in ("Planet", "Asteroid"):
+        if bodies[i].type in ("Planet", "Moon","Asteroid"):
             bodies[i].temperature = temp_new
             if bodies[i].mass <= k * dt_seconds:
                 bodies[i].status = "Extreme Mass Loss"
             
-            if bodies[i].type == "Planet" and bodies[i].gh >0:
+            if bodies[i].type in ("Planet", "Moon") and bodies[i].gh >0:
                 flux_in = bodies[i].flux * (1 - bodies[i].albedo) / 4
-                flux_out = (1 - bodies[i].gh) * flux_in
-
                 bodies[i].temperature = ( (flux_in * (1+bodies[i].gh)) / σ ) ** 0.25
-
 
             if temp_new > bodies[i].temp_threshold:
                 bodies[i].mass -= k * dt_seconds
