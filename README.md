@@ -2,21 +2,22 @@
 A simple N-Body simulator made by @Dahzito (me) during my free time.
 Uses Newtonian Mechanics, and runs on the Verlet Integration method to compute the velocity and position of every body that is added to the program.
 
-To this program, I've also added, automatic star's luminosity and temperature calculation using the Mass-Luminosity relation and the Stefan-Boltzmann's law, force felt by every body in the N-Body system, a simple mass loss calculation for planets that pass a certain temperature threshold, flux received by every body in the system, and then calculation of the temperature of every planet in the N-Body system using also the Stefan-Boltzmann's law and the planet's albedo, and gravity at the surface of every body to eventually see the Roche limit.
+To this program, I've also added, automatic star's luminosity and temperature calculation using the Mass-Luminosity relation and the Stefan-Boltzmann's law, force felt by every body in the N-Body system, a simple body vaporation system, flux received by every body in the n-body system, and then calculation of the temperature of every planet in it using the Stefan-Boltzmann's law, the body's albedo, surface emissivity and greenhouse factor, and gravity at the surface of every body to eventually see the Roche limit.
 
-Stars also have on the simulation an automatic RGB value calculation depending on their temperature, and planets need a manual input for their RGBA values.
+Stars have an automatic RGB value system calculation depending on their effective temperature, all the other bodies need a manual input for their RGBA values.
 
 To add a new body to the program, add the following line of code, and change whatever you want:
 
-bodies.append(Body(1.99*10**30, [0,0], [0, 0], [0, 0], "Star", 6.96e8, 0, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1])) 
+bodies.append(Body(1.989e30, [0,0], [0, 0], [0, 0], "Sun", 6.96e8, 5878, 0.0, 1000, "Star", [1, 1, 0.7, 1], 0, 1))
 #The RGB values of the Star are automatically determined depending on their surface temperature, also calculated using the Mass-Luminosity Relation, and Stefan-Boltzmann's law.
 
-bodies.append(Body(6.54*10**14, [0,0], [0, 22580], [2.5e10, 0], "Comet 1", 3.5e3, 280, 0.7, 100, 0, "Asteroid", [0, 0.5007843137, 0.6521568627, 0.8]))
+bodies.append(Body(5.97*10**24, [0,0], [0, 30290], [1.471e11, 0], "Earth", 6.371e6, 280, 0.31, 2000, "Planet", [15/255, 59/255, 141/255, 0.80], 0.46, 0.9))
+bodies.append(Body(7.35*10**22, [0,0], [0, 31312], [1.471e11 + 3.633e8, 0], "Moon", 1.737e6, 280, 0.11, 2300, "Planet", [158/255, 158/255, 158/255, 0.80], 0.0, 0.95))
 
-bodies.append(Body(1.58*10**27, [0,0], [0, 27800], [5.5e10, 0], "Planet 2", 3.5e6, 280, 0.4, 900, 0, "Planet", [0.768627451, 0.4980392157, 0.3176470588, 0.8]))
-#Mass, acceleration, velocity, coordinates, name, radii, temperature, albedo, temp_threshold, flux, type, RGB colors;
+bodies.append(Body(1.898e27, [0,0], [0, 13070], [7.785e11, 0], "Jupiter", 6.9911e7, 120, 0.50, 2000, "Planet", [205/255, 133/255, 63/255, 0.8], 0, 0.9))
+#Mass, acceleration, velocity, coordinates, name, radii, temperature, albedo, temp_threshold, type, RGB colors (0-1), greenhouse effect (0-1), ε - Surface Emissitivity (0-1);
 
-Or simply change the parameters of the already existing bodies.
+(Or simply change the parameters of the already existing bodies)
 
 This needs to be added after the piece of code that contains: class Body ; and the array bodies = [], btw
 
