@@ -1,7 +1,9 @@
+import builtins
 from math import*
 from sys import*
 from os import*
 import os
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -24,13 +26,13 @@ _t = 24*3600 #Conversion factor from days to seconds
 MAX_TRAIL = 1000
 
 class Body:
-        def __init__(self, mass, acc, vel, coord, name, radii, temperature, albedo, temp_threshold, flux, type, rgb=[0, 0, 0, 1], gh=0):
+        def __init__(self, mass, acc, vel, coord, name, radii, temperature, albedo, temp_threshold, type, rgb=[0, 0, 0, 1], gh=0, emissivity=0.9):
             
             #Dynamic Properties
             self.acceleration = list(acc)   # List as [acc_x, acc_y]
             self.velocity = list(vel)       # List as [vel_x, vel_y]
             self.coordinates = list(coord)  # List as [coord_x, coord_y]
-            self.prev_acceleration = list(acc)  # Store previous acceleration for velocity Verlet~
+            self.prev_acceleration = list(acc)  # Store previous acceleration for velocity Verlet
 
             self.force = 0
 
@@ -48,7 +50,7 @@ class Body:
 
             self.luminosity = σ * 4 * pi * self.radii**2 * self.temperature**4
             self.albedo = albedo  # Albedo for energy absorption calculations
-            self.flux = flux      # Flux received from other bodies (for energy balance calculations)
+            self.flux = 0         # Flux received from other bodies (for energy balance calculations)
 
             #Other properties
             self.type = type        # Type of body (e.g., "Star", "Planet", "Asteroid")
@@ -59,19 +61,35 @@ class Body:
 
             self.gh = gh   # Greenhouse effect factor for planets, where 0 means no greenhouse effect. 
                            # This is a simplified model and does not account for atmospheric composition or other factors that influence greenhouse effects.
+            self.emissivity = emissivity  # Surface emissivity for thermal radiation calculations of planets.
+            self.heat_capacity = 1e6 * self.mass  # Simplified heat capacity proportional to mass (J/K), for temperature change calculations
 
 # rgba(158, 158, 158, 0.80)
 bodies = []
 
-bodies.append(Body(1.989*10**30, [0,0], [0, 0], [0, 0], "Sun", 6.96e8, 5878, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1], 0))
-
 #bodies.append(Body(5.97*10**30, [0,0], [0, 12000], [1.5e11, 0], "Star 2", 6.37e4, 6578, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1], 0))
 #bodies.append(Body(1.898*10**28, [0,0], [0, 73270], [3.0e11, 0], "Star 3", 7.15e7, 4578, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1], 0))
 
-bodies.append(Body(5.97*10**24, [0,0], [0, 30290], [1.471e11, 0], "Earth", 6.371e6, 280, 0.3, 2000, 0, "Planet", [15/255, 59/255, 141/255, 0.80], 0.46))
-bodies.append(Body(7.35*10**22, [0,0], [0, 31370], [1.471e11 + 363300000, 0], "Moon", 1.737e6, 280, 0.12, 2300, 0, "Planet", [158/255, 158/255, 158/255, 0.80], 0.0))
+bodies.append(Body(1.989e30, [0,0], [0, 0], [0, 0], "Sun", 6.96e8, 5878, 0.0, 1000, "Star", [1, 1, 0.7, 1], 0, 1))
 
-#Mass, acceleration, velocity, coordinates, name, radii, temperature, albedo, temp_threshold, flux, type, RGB colors (0-1), greenhouse effect (0-1);
+bodies.append(Body(3.3011e23, [0,0], [0, 47360], [5.79e10, 0], "Mercury", 2.4397e6, 440, 0.09, 1000, "Planet", [156/255, 102/255, 31/255, 0.8], 0, 0.9))
+
+bodies.append(Body(4.8675e24, [0,0], [0, 35260], [1.082e11, 0], "Venus", 6.0518e6, 737, 0.76, 2000, "Planet", [235/255, 191/255, 122/255, 0.8], 0.92, 0.02))
+
+bodies.append(Body(5.97*10**24, [0,0], [0, 30290], [1.471e11, 0], "Earth", 6.371e6, 280, 0.31, 2000, "Planet", [15/255, 59/255, 141/255, 0.80], 0.46, 0.9))
+bodies.append(Body(7.35*10**22, [0,0], [0, 31312], [1.471e11 + 3.633e8, 0], "Moon", 1.737e6, 280, 0.11, 2300, "Planet", [158/255, 158/255, 158/255, 0.80], 0.0, 0.95))
+
+bodies.append(Body(6.4171e23, [0,0], [0, 24070], [2.279e11, 0], "Mars", 3.3895e6, 210, 0.25, 2000, "Planet", [178/255, 34/255, 34/255, 0.8], 0, 0.95))
+
+bodies.append(Body(1.898e27, [0,0], [0, 13070], [7.785e11, 0], "Jupiter", 6.9911e7, 120, 0.50, 2000, "Planet", [205/255, 133/255, 63/255, 0.8], 0, 0.9))
+
+bodies.append(Body(5.683e26, [0,0], [0, 9690], [1.433e12, 0], "Saturn", 5.8232e7, 95, 0.34, 2000, "Planet", [210/255, 180/255, 140/255, 0.8], 0, 0.9))
+
+bodies.append(Body(8.681e25, [0,0], [0, 6810], [2.877e12, 0], "Uranus", 2.5362e7, 76, 0.30, 2000, "Planet", [173/255, 216/255, 230/255, 0.8], 0, 0.9))
+
+bodies.append(Body(1.02413e26, [0,0], [0, 5430], [4.503e12, 0], "Neptune", 2.4622e7, 72, 0.29, 2000, "Planet", [72/255, 61/255, 139/255, 0.8], 0, 0.9))
+
+#Mass, acceleration, velocity, coordinates, name, radii, temperature, albedo, temp_threshold, type, RGB colors (0-1), greenhouse effect (0-1), ε - Surface Emissitivity (0-1);
 
 def Update_():
     global δt, ε, force_temp
@@ -130,7 +148,7 @@ def Update_():
             for body in bodies)
 
         δt = np.clip(
-        0.01 / np.sqrt(a_max),
+        0.2 / np.sqrt(a_max),
         0.01,
         50
         )
@@ -139,7 +157,7 @@ def Update_():
     
     # Calculate temperature and mass loss after all flux has been accumulated
     for i in range(len(bodies)):
-        temp_new = (bodies[i].flux * ((1 - bodies[i].albedo) / (4*σ)))**0.25
+        temp_new = (bodies[i].flux * ((1 - bodies[i].albedo) / (4*σ*bodies[i].emissivity)))**0.25 if bodies[i].flux > 0 else 0
         
         k0 = 1e5; T0 = 1000
         k = k0 * exp(temp_new / T0)
@@ -155,11 +173,16 @@ def Update_():
                 bodies[i].status = "Extreme Mass Loss"
             
             if bodies[i].type in ("Planet", "Moon") and bodies[i].gh >0:
-                flux_in = bodies[i].flux * (1 - bodies[i].albedo) / 4
-                bodies[i].temperature = ( (flux_in * (1+bodies[i].gh)) / σ ) ** 0.25
+                bodies[i].temperature = ( (bodies[i].flux * (1 - bodies[i].albedo) * (1 + bodies[i].gh)) / (4 * σ * bodies[i].emissivity) ) ** 0.25
 
             if temp_new > bodies[i].temp_threshold:
                 bodies[i].mass -= k * dt_seconds
+
+            power_in = bodies[i].flux * (1 - bodies[i].albedo) * (pi * bodies[i].radii**2)
+            power_out = (σ * (bodies[i].temperature**4) * (4 * pi * bodies[i].radii**2) * bodies[i].emissivity) / (1 + bodies[i].gh)
+
+            dT_dt = (power_in - power_out) / bodies[i].heat_capacity
+            bodies[i].temperature += dT_dt * dt_seconds
         
         #Temperature, luminosity, and wavelength calculations
         elif bodies[i].type == "Star":
@@ -293,12 +316,26 @@ def Visualize(energy_reset_period=Δt_reset):
         energy_reset_period: Reset the energy graph every N days (default: 365)
         force_reset_period: Reset the force graph every N days (default: 365)
     """
-    fig = plt.figure(figsize=(24, 18))
-    save_template = os.path.join(
+    fig = plt.figure(num="N-Body Simulation - Full Tracking", figsize=(24, 18))
+    try:
+        fig.canvas.manager.set_window_title("N-Body Simulation - Full Tracking")
+    except Exception:
+        pass
+    save_png_template = os.path.join(
         os.path.expanduser("~"),
         "Downloads",
-        "N-Body Simulator - Adaptative timestep and flux and greenhouse effect test 1 - Plot save {num}.png"
+        "Python Plots - 2D N-Body Simulator",
+        "N-Body Simulator - Surface Temperatures test 3 - Plots",
+        "N-Body Simulator, Full Trackings - Test 3 - Plot {num} @ {current_time:.2f} days.png"
     )
+    save_json_template = os.path.join(
+        os.path.expanduser("~"),
+        "Downloads",
+        "Python Plots - 2D N-Body Simulator",
+        "N-Body Simulator - Surface Temperatures test 3 - Plots",
+        "N-Body Simulator, Full Trackings - Test 3 - Plot {num} @ {current_time:.2f} days.json"
+    )
+    os.makedirs(os.path.dirname(save_png_template), exist_ok=True)
     save_count = [1]
     next_save_time = [energy_reset_period - 2 * δt]  # Save just before the reset for better visualization of changes
     manager = plt.get_current_fig_manager()
@@ -332,7 +369,7 @@ def Visualize(energy_reset_period=Δt_reset):
 
     # auto limits based on initial system
     max_r = max(max(abs(x.coordinates[0]), abs(x.coordinates[1])) for x in bodies)
-    limit = max(max_r * 2, 1e10)
+    limit = max(max_r * 1.2, 1e10)
 
     ax.set_xlim(-limit, limit)
     ax.set_ylim(-limit, limit)
@@ -357,6 +394,25 @@ def Visualize(energy_reset_period=Δt_reset):
 
         points.append(p)
         trails.append(t)
+
+    # Create an external legend for the orbital plot
+    fig.subplots_adjust(right=0.80)
+    orbit_legend = fig.legend(
+        points,
+        [b.name for b in bodies],
+        loc='center left',
+        bbox_to_anchor=(0.86, 0.5),
+        bbox_transform=fig.transFigure,
+        frameon=True,
+        fontsize=9,
+        ncol=1,
+        title='Bodies',
+        title_fontsize=10,
+        borderaxespad=0.5,
+        labelspacing=0.3,
+        handletextpad=0.4
+    )
+    legend_artists = [orbit_legend] if orbit_legend is not None else []
 
     # Helper: archive body display assets while removing it from active simulation
     def remove_body(idx):
@@ -464,7 +520,6 @@ def Visualize(energy_reset_period=Δt_reset):
     ax_energy.set_xlim(0, energy_reset_period)
     ax_energy.set_ylim(-limit, limit)  # Adjust limits as needed
     ax_energy.set_ylabel("Total Mechanical Energy (J)", fontsize=10)
-    ax_energy.legend()
 
 
     # Force plot setup
@@ -484,7 +539,6 @@ def Visualize(energy_reset_period=Δt_reset):
     ax_force.set_ylim(0, limit)  # Adjust limits as needed
     ax_force.set_xlabel("Time (days)", fontsize=10)
     ax_force.set_ylabel("Total Gravitational Force (N)", fontsize=10)
-    ax_force.legend()
 
     # Mass plot setup
     mass_lines = []
@@ -501,7 +555,6 @@ def Visualize(energy_reset_period=Δt_reset):
     ax_mass.set_xlim(0, energy_reset_period)
     ax_mass.set_ylim(0, limit)
     ax_mass.set_ylabel("Mass (kg)", fontsize=10)
-    ax_mass.legend()
 
     # Flux plot setup
     flux_lines = []
@@ -554,7 +607,7 @@ def Visualize(energy_reset_period=Δt_reset):
             yield None
 
     def init():
-        return points + trails + archived_trails + energy_lines + archived_energy_lines + force_lines + archived_force_lines + mass_lines + archived_mass_lines + flux_lines + archived_flux_lines + temperature_lines + archived_temperature_lines
+        return points + trails + archived_trails + energy_lines + archived_energy_lines + force_lines + archived_force_lines + mass_lines + archived_mass_lines + flux_lines + archived_flux_lines + temperature_lines + archived_temperature_lines + legend_artists
 
     def update(frame):
         Update_()
@@ -674,6 +727,12 @@ def Visualize(energy_reset_period=Δt_reset):
         body_index = max(0, min(3, len(bodies) - 1))
 
         # Mass axis: compare against the focused body's own history
+        if mass_data and any(mass_data):
+            body_mass_indices = [i for i, b in enumerate(bodies) if b.type in ("Planet", "Moon", "Asteroid")]
+            max_mass = max(max(mass_data[i]) for i in body_mass_indices if mass_data[i])
+            min_mass = min(min(mass_data[i]) for i in body_mass_indices if mass_data[i])
+            ax_mass.set_ylim(min_mass * 1.2, -min_mass * 0.3 + max_mass * 1.1)
+        """
         if mass_data and len(mass_data) > body_index:
             body_mass_history = mass_data[body_index]
             focused_mass = bodies[body_index].mass
@@ -683,14 +742,16 @@ def Visualize(energy_reset_period=Δt_reset):
                 current_body_max = 0
             if focused_mass >= current_body_max:
                 ax_mass.set_ylim(bodies[body_index].mass - 10**14, focused_mass * 1.0 + 10**14)
+        """
 
         # Energy axis: energy_data[0] is whole-system; per-body energy is at index body_index + 1
         eidx = body_index + 1
 
-        if energy_data and any(energy_data):
-            max_energy = max(max(e_1) for e_1 in energy_data if e_1)
-            min_energy = min(min(e_2) for e_2 in energy_data if e_2)
-            ax_energy.set_ylim(min_energy * 1.2,  - min_energy * 0.3 + max_energy * 1.5)
+        if energy_data and any(energy_data[1:]):
+            body_energy_indices = [i + 1 for i, b in enumerate(bodies) if b.type in ("Planet", "Moon", "Asteroid")]
+            max_energy = max(max(energy_data[i]) for i in body_energy_indices if energy_data[i])
+            min_energy = min(min(energy_data[i]) for i in body_energy_indices if energy_data[i])
+            ax_energy.set_ylim(min_energy * 1.2, -min_energy * 0.3 + max_energy * 1.1)
         """
         if energy_data and len(energy_data) > eidx:
             body_energy_history = energy_data[eidx]
@@ -709,8 +770,9 @@ def Visualize(energy_reset_period=Δt_reset):
 
         # Force axis: compare against the focused body's own force history
         if force_data and any(force_data):
-            max_force = max(max(f) for f in force_data if f)
-            ax_force.set_ylim(0, max_force * 1.2)
+            max_force = max(max(i) for i in force_data if i)
+            min_force = min(min(i) for i in force_data if i)
+            ax_force.set_ylim(0, -min_force * 0.3 + max_force * 1.1)
 
         """
         if force_data and len(force_data) > body_index:
@@ -725,6 +787,11 @@ def Visualize(energy_reset_period=Δt_reset):
         """
 
         # Flux axis
+        if flux_data and any(flux_data):
+            max_flux = max(max(i) for i in flux_data if i)
+            min_flux = min(min(i) for i in flux_data if i)
+            ax_flux.set_ylim(0, -min_flux * 0.3 + max_flux * 1.1)
+        """
         if flux_data and len(flux_data) > body_index:
             body_flux_history = flux_data[body_index]
             focused_flux = bodies[body_index].flux
@@ -734,8 +801,21 @@ def Visualize(energy_reset_period=Δt_reset):
                 current_body_max_flux = 0
             if focused_flux >= current_body_max_flux:
                 ax_flux.set_ylim(0, focused_flux * 1.2)
+        """
 
         # Temperature axis
+        if temperature_data and any(temperature_data):
+            body_temp_indices = [i for i, b in enumerate(bodies) if b.type in ("Planet", "Moon", "Asteroid")]
+            max_temp = max(max(temperature_data[i]) for i in body_temp_indices if temperature_data[i])
+            min_temp = min(min(temperature_data[i]) for i in body_temp_indices if temperature_data[i])
+            ax_temperature.set_ylim(min_temp * 1.2, -min_temp * 0.3 + max_temp * 1.1)
+        """    
+        if temperature_data and any(temperature_data):
+            max_temp = max(max(i) for i in temperature_data if i)
+            min_temp = min(min(i) for i in temperature_data if i)
+            ax_temperature.set_ylim(min_temp * 1.2, max_temp * 1.2)
+        """
+        """
         if temperature_data and len(temperature_data) > body_index:
             body_temp_history = temperature_data[body_index]
             focused_temp = bodies[body_index].temperature
@@ -745,15 +825,88 @@ def Visualize(energy_reset_period=Δt_reset):
                 current_body_max_temp = 0
             if focused_temp >= current_body_max_temp:
                 ax_temperature.set_ylim(0, focused_temp * 1.2)
+        """
 
-        #-------------------------------------------- Save the current figure automatically 50 days before each reset period. --------------------------------------------
+        #-------------------------------------------- Save the current figure automatically before each reset period. --------------------------------------------
         while current_time >= next_save_time[0] and next_save_time[0] <= Δt:
-            save_path = save_template.format(num=save_count[0])
+            save_png_path = save_png_template.format(num=save_count[0], current_time=current_time)
+            save_json_path = save_json_template.format(num=save_count[0], current_time=current_time)
             try:
-                fig.savefig(save_path, dpi=200, bbox_inches='tight')
-                print(f"Saved plot automatically to: {save_path}")
+                fig.savefig(save_png_path, dpi=200, bbox_inches='tight')
+                print(f"Saved plot automatically to: {save_png_path}")
             except Exception as e:
                 print(f"Failed to save pre-reset plot: {e}")
+
+            json_data = {
+                "save_index": save_count[0],
+                "save_time": current_time,
+                "reset_threshold": next_save_time[0],
+                "entire_system_energy": {
+                    "times": list(time_data),
+                    "values": list(energy_data[0])
+                },
+                "bodies": [
+                    {
+                        "name": bodies[i].name,
+                        "times": list(time_data),
+                        "energy": list(energy_data[i + 1]) if i + 1 < len(energy_data) else [],
+                        "force": list(force_data[i]) if i < len(force_data) else [],
+                        "mass": list(mass_data[i]) if i < len(mass_data) else [],
+                        "flux": list(flux_data[i]) if i < len(flux_data) else [],
+                        "temperature": list(temperature_data[i]) if i < len(temperature_data) else []
+                    }
+                    for i in range(len(bodies))
+                ]
+            }
+
+            try:
+                with builtins.open(save_json_path, "w", encoding="utf-8") as json_file:
+                    json.dump(json_data, json_file, indent=2)
+                print(f"Saved plot data JSON automatically to: {save_json_path}")
+            except Exception as e:
+                print(f"Failed to save pre-reset JSON data: {e}")
+
+            txt_lines = []
+            txt_lines.append(f"Save index: {save_count[0]}")
+            txt_lines.append(f"Current time: {current_time:.4f} days")
+            txt_lines.append(f"Reset threshold: {next_save_time[0]:.4f} days")
+            txt_lines.append("")
+            for i, body in enumerate(bodies):
+                txt_lines.append(f"Body: {body.name}")
+                txt_lines.append("Time (days) | Energy (J)        | Force (N)      | Mass (kg)      | Flux (W/m^2)   | Temperature (K)")
+                txt_lines.append("-" * 110)
+
+                body_energy = list(energy_data[i + 1]) if i + 1 < len(energy_data) else []
+                body_force = list(force_data[i]) if i < len(force_data) else []
+                body_mass = list(mass_data[i]) if i < len(mass_data) else []
+                body_flux = list(flux_data[i]) if i < len(flux_data) else []
+                body_temp = list(temperature_data[i]) if i < len(temperature_data) else []
+                row_count = max(
+                    len(time_data),
+                    len(body_force),
+                    len(body_mass),
+                    len(body_flux),
+                    len(body_temp)
+                )
+
+                for idx in range(row_count):
+                    t = f"{time_data[idx]:.4f}" if idx < len(time_data) else ""
+                    e = f"{body_energy[idx]:.6e}" if idx < len(body_energy) else ""
+                    f_val = f"{body_force[idx]:.6e}" if idx < len(body_force) else ""
+                    m = f"{body_mass[idx]:.6e}" if idx < len(body_mass) else ""
+                    fl = f"{body_flux[idx]:.6e}" if idx < len(body_flux) else ""
+                    temp = f"{body_temp[idx]:.6e}" if idx < len(body_temp) else ""
+                    txt_lines.append(f"{t:<12} | {e:<16} | {f_val:<14} | {m:<14} | {fl:<14} | {temp:<14}")
+                txt_lines.append("")
+
+            save_txt_path = save_json_path[:-5] + ".txt"
+            try:
+                with builtins.open(save_txt_path, "w", encoding="utf-8") as txt_file:
+                    txt_file.write("\n".join(txt_lines))
+                print(f"Saved plot data TXT automatically to: {save_txt_path}")
+            except Exception as e:
+                print(f"Failed to save pre-reset TXT data: {e}")
+
             save_count[0] += 1
             next_save_time[0] += energy_reset_period
 
@@ -801,7 +954,7 @@ def Visualize(energy_reset_period=Δt_reset):
 
             i += 1
 
-        return points + trails + archived_trails + energy_lines + archived_energy_lines + force_lines + archived_force_lines + mass_lines + archived_mass_lines + flux_lines + archived_flux_lines + temperature_lines + archived_temperature_lines + [info_text]
+        return points + trails + archived_trails + energy_lines + archived_energy_lines + force_lines + archived_force_lines + mass_lines + archived_mass_lines + flux_lines + archived_flux_lines + temperature_lines + archived_temperature_lines + [info_text] + legend_artists
     
 
     ani = FuncAnimation(
@@ -810,7 +963,7 @@ def Visualize(energy_reset_period=Δt_reset):
         frames=frame_generator(),
         init_func=init,
         interval=2,
-        blit=True,
+        blit=False,
         repeat=False
     )
 
