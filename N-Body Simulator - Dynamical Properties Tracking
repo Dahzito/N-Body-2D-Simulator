@@ -63,7 +63,7 @@ class Body:
             self.gh = gh   # Greenhouse effect factor for planets, where 0 means no greenhouse effect. 
                            # This is a simplified model and does not account for atmospheric composition or other factors that influence greenhouse effects.
             self.emissivity = emissivity  # Surface emissivity for thermal radiation calculations of planets, defaulting to 1 (blackbody) (ranges from 0 to 1)
-            self.heat_capacity = 1e6 * self.mass  # Simplified heat capacity proportional to mass (J/K), for temperature change calculations
+            self.heat_capacity = 1000 * self.mass  # Simplified heat capacity proportional to mass (J/K), for temperature change calculations
 
 # rgba(158, 158, 158, 0.80)
 bodies = []
@@ -93,6 +93,31 @@ bodies.append(Body(1.02413e26, [0,0], [0, 5430], [4.503e12, 0], "Neptune", 2.462
 
 #Mass, acceleration, velocity, coordinates, name, radii, temperature, albedo, temp_threshold, type, RGB colors (0-1), greenhouse effect (0-1), ε - Surface Emissitivity (0-1);
 
+def Acceleration(dx, dy, num, pos_x=None, pos_y=None):
+    eps_local = min(b.radii for b in bodies) * 1
+    ax = 0.0
+    ay = 0.0
+
+    if pos_x is not None and pos_y is not None:
+        for j in range(len(bodies)):
+            if j == num:
+                continue
+            rx = pos_x[j] - dx
+            ry = pos_y[j] - dy
+            r_soft = sqrt(rx**2 + ry**2 + eps_local**2)
+            ax += (G * bodies[j].mass * rx) / r_soft**3
+            ay += (G * bodies[j].mass * ry) / r_soft**3
+    else:
+        for j, other in enumerate(bodies):
+            if j == num:
+                continue
+            rx = other.coordinates[0] - dx
+            ry = other.coordinates[1] - dy
+            r_soft = sqrt(rx**2 + ry**2 + eps_local**2)
+            ax += (G * other.mass * rx) / r_soft**3
+            ay += (G * other.mass * ry) / r_soft**3
+    return ax, ay
+
 def Update_():
     global δt, ε, force_temp
     radius = []
@@ -102,7 +127,7 @@ def Update_():
     
     ε = min(b.radii for b in bodies) * 1 # Softening length based on smallest radius
 
-    #Calculate the distance of every object on the class Body
+    #-------------------------------------------- Calculate the distance of every object on the class Body --------------------------------------------
     for b in range(len(bodies)):
         bodies[b].acceleration = [0 , 0]
         bodies[b].flux = 0
@@ -144,20 +169,20 @@ def Update_():
         
 
 
-    #adaptative timestep based on minimum distance to improve accuracy during close encounters
+    #-------------------------------------------- Adaptative timestep based on minimum distance to improve accuracy during close encounters --------------------------------------------
     try:
         a_max = max(np.linalg.norm(body.acceleration)
             for body in bodies)
 
         δt = np.clip(
-        0.1 / np.sqrt(a_max),
+        1 / np.sqrt(a_max),
         0.01,
         50
         )
     except ValueError:
         δt = 6*δt_default  # Default large distance if no pairs exist (e.g., single body)
     
-    # Calculate temperature and mass loss after all flux has been accumulated
+    #-------------------------------------------- Calculate temperature and mass loss after all flux has been accumulated --------------------------------------------
     for i in range(len(bodies)):
         temp_new = (bodies[i].flux * ((1 - bodies[i].albedo) / (4*σ*bodies[i].emissivity)))**0.25 if bodies[i].flux > 0 else 0
         
@@ -218,40 +243,66 @@ def Update_():
         else: 
             if temp_new > bodies[i].temperature: bodies[i].temperature = temp_new
 
-        
+    # Yoshida 4th Order Integrator: for bigger timesteps and better long-term energy conservation
+    # Coefficients for the Yoshida 4th order symplectic integrator
+    w0 = -1.702414289193
+    w1 = 1.3512071919597
+    c1 = c4 = w1 / 2.0
+    c2 = c3 = (w0 + w1) / 2.0
+    d1 = d3 = w1
+    d2 = w0
 
-    # Velocity Verlet integration: more accurate and better energy conservation
-    # Step 1: Update positions: x_new = x + v*dt + 0.5*a*dt²
-    for n in range(len(bodies)):
-        b = bodies[n]
-        b.coordinates[0] += b.velocity[0] * dt_seconds + 0.5 * b.acceleration[0] * dt_seconds**2
-        b.coordinates[1] += b.velocity[1] * dt_seconds + 0.5 * b.acceleration[1] * dt_seconds**2
-    
-    # Step 2: Compute new accelerations at new positions
-    # (already done at start of next Update_() call, but we need to do it once here first)
-    # We'll store old acceleration and compute new one
-    for b in range(len(bodies)):
-        bodies[b].prev_acceleration = bodies[b].acceleration.copy()
-    
-    for b in range(len(bodies)):
-        bodies[b].acceleration = [0, 0]
-    
-    for i in range(len(bodies)):
-        for j in range(len(bodies)):
-            if i != j:
-                dx = bodies[j].coordinates[0] - bodies[i].coordinates[0]
-                dy = bodies[j].coordinates[1] - bodies[i].coordinates[1]
+    n_b = len(bodies)
+    if n_b > 0:
+        pos_x = [body.coordinates[0] for body in bodies]
+        pos_y = [body.coordinates[1] for body in bodies]
+        vel_x = [body.velocity[0] for body in bodies]
+        vel_y = [body.velocity[1] for body in bodies]
 
-                r = sqrt(dx**2 + dy**2 + ε**2)
+        def compute_accelerations(px, py):
+            axs = [0.0] * n_b
+            ays = [0.0] * n_b
+            for i in range(n_b):
+                axs[i], ays[i] = Acceleration(px[i], py[i], i, px, py)
+            return axs, ays
 
-                bodies[i].acceleration[0] += (G * bodies[j].mass * dx) / r**3
-                bodies[i].acceleration[1] += (G * bodies[j].mass * dy) / r**3
+        # Stage 1
+        for i in range(n_b):
+            pos_x[i] += c1 * vel_x[i] * dt_seconds
+            pos_y[i] += c1 * vel_y[i] * dt_seconds
+        axs, ays = compute_accelerations(pos_x, pos_y)
+        for i in range(n_b):
+            vel_x[i] += d1 * dt_seconds * axs[i]
+            vel_y[i] += d1 * dt_seconds * ays[i]
 
-    # Step 3: Update velocities using average acceleration: v_new = v + 0.5*(a_old + a_new)*dt
-    for n in range(len(bodies)):
-        b = bodies[n]
-        b.velocity[0] += 0.5 * (b.prev_acceleration[0] + b.acceleration[0]) * dt_seconds
-        b.velocity[1] += 0.5 * (b.prev_acceleration[1] + b.acceleration[1]) * dt_seconds
+        # Stage 2
+        for i in range(n_b):
+            pos_x[i] += c2 * vel_x[i] * dt_seconds
+            pos_y[i] += c2 * vel_y[i] * dt_seconds
+        axs, ays = compute_accelerations(pos_x, pos_y)
+        for i in range(n_b):
+            vel_x[i] += d2 * dt_seconds * axs[i]
+            vel_y[i] += d2 * dt_seconds * ays[i]
+
+        # Stage 3
+        for i in range(n_b):
+            pos_x[i] += c3 * vel_x[i] * dt_seconds
+            pos_y[i] += c3 * vel_y[i] * dt_seconds
+        axs, ays = compute_accelerations(pos_x, pos_y)
+        for i in range(n_b):
+            vel_x[i] += d3 * dt_seconds * axs[i]
+            vel_y[i] += d3 * dt_seconds * ays[i]
+
+        # Final position update
+        for i in range(n_b):
+            pos_x[i] += c4 * vel_x[i] * dt_seconds
+            pos_y[i] += c4 * vel_y[i] * dt_seconds
+
+        for i in range(n_b):
+            bodies[i].coordinates[0] = pos_x[i]
+            bodies[i].coordinates[1] = pos_y[i]
+            bodies[i].velocity[0] = vel_x[i]
+            bodies[i].velocity[1] = vel_y[i]
 
 
 #------ Visualization of the N Body system using Matplotlib ------
@@ -328,18 +379,19 @@ def Visualize(energy_reset_period=Δt_reset):
         "Downloads",
         "Python Plots - 2D N-Body Simulator",
         "N-Body Simulator - Dynamical Properties Tracking",
-        "N-Body Simulator - Dynamical Properties Tracking - Test 3 - Plots",
-        "N-Body Simulator, Dynamical Properties Tracking - Test 3 - Plot {num} @ {current_time:.2f} days.png"
+        "N-Body Simulator, Dynamical Properties, T7 Plots",
+        "N-Body Simulator, Dynamical Properties, T7 Plot {num} @ {current_time:.2f} days.png"
     )
     save_json_template = os.path.join(
         os.path.expanduser("~"),
         "Downloads",
         "Python Plots - 2D N-Body Simulator",
         "N-Body Simulator - Dynamical Properties Tracking",
-        "N-Body Simulator - Dynamical Properties Tracking - Test 3 - Plots",
-        "N-Body Simulator, Dynamical Properties Tracking - Test 3 - Plot {num} @ {current_time:.2f} days.json"
+        "N-Body Simulator, Dynamical Properties, T7 Data",
+        "N-Body Simulator, Dynamical Properties, T7 Plot {num} @ {current_time:.2f} days.json"
     )
     os.makedirs(os.path.dirname(save_png_template), exist_ok=True)
+    os.makedirs(os.path.dirname(save_json_template), exist_ok=True)
     save_count = [1]
     next_save_time = [energy_reset_period - 2 * δt]  # Save just before the reset for better visualization of changes
     manager = plt.get_current_fig_manager()
@@ -727,16 +779,18 @@ def Visualize(energy_reset_period=Δt_reset):
         """
 
         # Temperature axis
+        
         if temperature_data and any(temperature_data):
             body_temp_indices = [i for i, b in enumerate(bodies) if b.type in ("Planet", "Moon", "Asteroid")]
             max_temp = max(max(temperature_data[i]) for i in body_temp_indices if temperature_data[i])
             min_temp = min(min(temperature_data[i]) for i in body_temp_indices if temperature_data[i])
-            ax_temperature.set_ylim(min_temp * 1.2, -min_temp * 0.3 + max_temp * 1.1)
+            ax_temperature.set_ylim(min_temp * 0.9, max_temp * 1.1)
         """    
         if temperature_data and any(temperature_data):
             max_temp = max(max(i) for i in temperature_data if i)
             min_temp = min(min(i) for i in temperature_data if i)
             ax_temperature.set_ylim(min_temp * 1.2, max_temp * 1.2)
+        
         """
         """
         if temperature_data and len(temperature_data) > body_index:
@@ -752,8 +806,8 @@ def Visualize(energy_reset_period=Δt_reset):
 
         #-------------------------------------------- Save the current figure automatically before each reset period. --------------------------------------------
         while current_time >= next_save_time[0] and next_save_time[0] <= Δt:
-            save_png_path = save_png_template.format(num=save_count[0], current_time=f"{current_time:.2f}")
-            save_json_path = save_json_template.format(num=save_count[0], current_time=f"{current_time:.2f}")
+            save_png_path = save_png_template.format(num=save_count[0], current_time=current_time)
+            save_json_path = save_json_template.format(num=save_count[0], current_time=current_time)
             try:
                 fig.savefig(save_png_path, dpi=200, bbox_inches='tight')
                 print(f"Saved plot automatically to: {save_png_path}")
@@ -796,8 +850,8 @@ def Visualize(energy_reset_period=Δt_reset):
             txt_lines.append("")
             for i, body in enumerate(bodies):
                 txt_lines.append(f"Body: {body.name}")
-                txt_lines.append("Time (days) | Energy (J)        | Force (N)      | Mass (kg)      | Flux (W/m^2)   | Temperature (K)")
-                txt_lines.append("-" * 110)
+                txt_lines.append("Time (days)  | Energy (J)       | Force (N)      | Mass (kg)      | Flux (W/m^2)   | Temperature (K)")
+                txt_lines.append("-" * 120)
 
                 body_energy = list(energy_data[i + 1]) if i + 1 < len(energy_data) else []
                 body_force = list(force_data[i]) if i < len(force_data) else []
