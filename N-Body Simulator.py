@@ -62,7 +62,7 @@ class Body:
             self.gh = gh   # Greenhouse effect factor for planets, where 0 means no greenhouse effect. 
                            # This is a simplified model and does not account for atmospheric composition or other factors that influence greenhouse effects.
             self.emissivity = emissivity  # Surface emissivity for thermal radiation calculations of planets.
-            self.heat_capacity = 1e6 * self.mass  # Simplified heat capacity proportional to mass (J/K), for temperature change calculations
+            self.heat_capacity = 1000 * self.mass  # Simplified heat capacity proportional to mass (J/K), for temperature change calculations
 
 # rgba(158, 158, 158, 0.80)
 bodies = []
@@ -71,6 +71,7 @@ bodies = []
 #bodies.append(Body(1.898*10**28, [0,0], [0, 73270], [3.0e11, 0], "Star 3", 7.15e7, 4578, 0.0, 1000, 0, "Star", [0.5, 0.5, 0.5, 1], 0))
 
 bodies.append(Body(1.989e30, [0,0], [0, 0], [0, 0], "Sun", 6.96e8, 5878, 0.0, 1000, "Star", [1, 1, 0.7, 1], 0, 1))
+#The RGB values of the Star are automatically determined depending on their surface temperature, also calculated using the Mass-Luminosity Relation, and Stefan-Boltzmann's law.
 
 bodies.append(Body(3.3011e23, [0,0], [0, 47360], [5.79e10, 0], "Mercury", 2.4397e6, 440, 0.09, 1000, "Planet", [156/255, 102/255, 31/255, 0.8], 0, 0.9))
 
@@ -90,6 +91,56 @@ bodies.append(Body(8.681e25, [0,0], [0, 6810], [2.877e12, 0], "Uranus", 2.5362e7
 bodies.append(Body(1.02413e26, [0,0], [0, 5430], [4.503e12, 0], "Neptune", 2.4622e7, 72, 0.29, 2000, "Planet", [72/255, 61/255, 139/255, 0.8], 0, 0.9))
 
 #Mass, acceleration, velocity, coordinates, name, radii, temperature, albedo, temp_threshold, type, RGB colors (0-1), greenhouse effect (0-1), ε - Surface Emissitivity (0-1);
+
+def Acceleration(dx, dy, num, pos_x=None, pos_y=None):
+    eps_local = min(b.radii for b in bodies) * 1
+    ax = 0.0
+    ay = 0.0
+
+    if pos_x is not None and pos_y is not None:
+        for j in range(len(bodies)):
+            if j == num:
+                continue
+            rx = pos_x[j] - dx
+            ry = pos_y[j] - dy
+            r_soft = sqrt(rx**2 + ry**2 + eps_local**2)
+            ax += (G * bodies[j].mass * rx) / r_soft**3
+            ay += (G * bodies[j].mass * ry) / r_soft**3
+    else:
+        for j, other in enumerate(bodies):
+            if j == num:
+                continue
+            rx = other.coordinates[0] - dx
+            ry = other.coordinates[1] - dy
+            r_soft = sqrt(rx**2 + ry**2 + eps_local**2)
+            ax += (G * other.mass * rx) / r_soft**3
+            ay += (G * other.mass * ry) / r_soft**3
+    return ax, ay
+
+def Acceleration(dx, dy, num, pos_x=None, pos_y=None):
+    eps_local = min(b.radii for b in bodies) * 1
+    ax = 0.0
+    ay = 0.0
+
+    if pos_x is not None and pos_y is not None:
+        for j in range(len(bodies)):
+            if j == num:
+                continue
+            rx = pos_x[j] - dx
+            ry = pos_y[j] - dy
+            r_soft = sqrt(rx**2 + ry**2 + eps_local**2)
+            ax += (G * bodies[j].mass * rx) / r_soft**3
+            ay += (G * bodies[j].mass * ry) / r_soft**3
+    else:
+        for j, other in enumerate(bodies):
+            if j == num:
+                continue
+            rx = other.coordinates[0] - dx
+            ry = other.coordinates[1] - dy
+            r_soft = sqrt(rx**2 + ry**2 + eps_local**2)
+            ax += (G * other.mass * rx) / r_soft**3
+            ay += (G * other.mass * ry) / r_soft**3
+    return ax, ay
 
 def Update_():
     global δt, ε, force_temp
@@ -148,7 +199,7 @@ def Update_():
             for body in bodies)
 
         δt = np.clip(
-        0.2 / np.sqrt(a_max),
+        1 / np.sqrt(a_max),
         0.01,
         50
         )
@@ -216,41 +267,66 @@ def Update_():
         else: 
             if temp_new > bodies[i].temperature: bodies[i].temperature = temp_new
 
-        
+    # Yoshida 4th Order Integrator: for bigger timesteps and better long-term energy conservation
+    # Coefficients for the Yoshida 4th order symplectic integrator
+    w0 = -1.702414289193
+    w1 = 1.3512071919597
+    c1 = c4 = w1 / 2.0
+    c2 = c3 = (w0 + w1) / 2.0
+    d1 = d3 = w1
+    d2 = w0
 
-    # Velocity Verlet integration: more accurate and better energy conservation
-    # Step 1: Update positions: x_new = x + v*dt + 0.5*a*dt²
-    for n in range(len(bodies)):
-        b = bodies[n]
-        b.coordinates[0] += b.velocity[0] * dt_seconds + 0.5 * b.acceleration[0] * dt_seconds**2
-        b.coordinates[1] += b.velocity[1] * dt_seconds + 0.5 * b.acceleration[1] * dt_seconds**2
-    
-    # Step 2: Compute new accelerations at new positions
-    # (already done at start of next Update_() call, but we need to do it once here first)
-    # We'll store old acceleration and compute new one
-    for b in range(len(bodies)):
-        bodies[b].prev_acceleration = bodies[b].acceleration.copy()
-    
-    for b in range(len(bodies)):
-        bodies[b].acceleration = [0, 0]
-    
-    for i in range(len(bodies)):
-        for j in range(len(bodies)):
-            if i != j:
-                dx = bodies[j].coordinates[0] - bodies[i].coordinates[0]
-                dy = bodies[j].coordinates[1] - bodies[i].coordinates[1]
+    n_b = len(bodies)
+    if n_b > 0:
+        pos_x = [body.coordinates[0] for body in bodies]
+        pos_y = [body.coordinates[1] for body in bodies]
+        vel_x = [body.velocity[0] for body in bodies]
+        vel_y = [body.velocity[1] for body in bodies]
 
-                r = sqrt(dx**2 + dy**2 + ε**2)
+        def compute_accelerations(px, py):
+            axs = [0.0] * n_b
+            ays = [0.0] * n_b
+            for i in range(n_b):
+                axs[i], ays[i] = Acceleration(px[i], py[i], i, px, py)
+            return axs, ays
 
-                bodies[i].acceleration[0] += (G * bodies[j].mass * dx) / r**3
-                bodies[i].acceleration[1] += (G * bodies[j].mass * dy) / r**3
+        # Stage 1
+        for i in range(n_b):
+            pos_x[i] += c1 * vel_x[i] * dt_seconds
+            pos_y[i] += c1 * vel_y[i] * dt_seconds
+        axs, ays = compute_accelerations(pos_x, pos_y)
+        for i in range(n_b):
+            vel_x[i] += d1 * dt_seconds * axs[i]
+            vel_y[i] += d1 * dt_seconds * ays[i]
 
-    # Step 3: Update velocities using average acceleration: v_new = v + 0.5*(a_old + a_new)*dt
-    for n in range(len(bodies)):
-        b = bodies[n]
-        b.velocity[0] += 0.5 * (b.prev_acceleration[0] + b.acceleration[0]) * dt_seconds
-        b.velocity[1] += 0.5 * (b.prev_acceleration[1] + b.acceleration[1]) * dt_seconds
+        # Stage 2
+        for i in range(n_b):
+            pos_x[i] += c2 * vel_x[i] * dt_seconds
+            pos_y[i] += c2 * vel_y[i] * dt_seconds
+        axs, ays = compute_accelerations(pos_x, pos_y)
+        for i in range(n_b):
+            vel_x[i] += d2 * dt_seconds * axs[i]
+            vel_y[i] += d2 * dt_seconds * ays[i]
 
+        # Stage 3
+        for i in range(n_b):
+            pos_x[i] += c3 * vel_x[i] * dt_seconds
+            pos_y[i] += c3 * vel_y[i] * dt_seconds
+        axs, ays = compute_accelerations(pos_x, pos_y)
+        for i in range(n_b):
+            vel_x[i] += d3 * dt_seconds * axs[i]
+            vel_y[i] += d3 * dt_seconds * ays[i]
+
+        # Final position update
+        for i in range(n_b):
+            pos_x[i] += c4 * vel_x[i] * dt_seconds
+            pos_y[i] += c4 * vel_y[i] * dt_seconds
+
+        for i in range(n_b):
+            bodies[i].coordinates[0] = pos_x[i]
+            bodies[i].coordinates[1] = pos_y[i]
+            bodies[i].velocity[0] = vel_x[i]
+            bodies[i].velocity[1] = vel_y[i]
 
 #------ Visualization of the N Body system using Matplotlib ------
 
@@ -325,17 +401,18 @@ def Visualize(energy_reset_period=Δt_reset):
         os.path.expanduser("~"),
         "Downloads",
         "Python Plots - 2D N-Body Simulator",
-        "N-Body Simulator - Surface Temperatures test 3 - Plots",
-        "N-Body Simulator, Full Trackings - Test 3 - Plot {num} @ {current_time:.2f} days.png"
+        "N-Body Simulator - Surface Temperatures T7 - Plots",
+        "N-Body Simulator, Full Trackings - T7 - Plot {num} @ {current_time:.2f} days.png"
     )
     save_json_template = os.path.join(
         os.path.expanduser("~"),
         "Downloads",
         "Python Plots - 2D N-Body Simulator",
-        "N-Body Simulator - Surface Temperatures test 3 - Plots",
-        "N-Body Simulator, Full Trackings - Test 3 - Plot {num} @ {current_time:.2f} days.json"
+        "N-Body Simulator - Surface Temperatures T7 - Data",
+        "N-Body Simulator, Full Trackings, T7 Data {num} @ {current_time:.2f} days.json"
     )
     os.makedirs(os.path.dirname(save_png_template), exist_ok=True)
+    os.makedirs(os.path.dirname(save_json_template), exist_ok=True)
     save_count = [1]
     next_save_time = [energy_reset_period - 2 * δt]  # Save just before the reset for better visualization of changes
     manager = plt.get_current_fig_manager()
@@ -724,9 +801,10 @@ def Visualize(energy_reset_period=Δt_reset):
 
         #-------------------------------------------- Dynamic y-limit updates based on current data (per-body) --------------------------------------------
         # Choose a body index to focus on (clamp to available bodies)
-        body_index = max(0, min(3, len(bodies) - 1))
+        body_index = 1 #max(0, min(3, len(bodies) - 1))
 
         # Mass axis: compare against the focused body's own history
+        """
         if mass_data and any(mass_data):
             body_mass_indices = [i for i, b in enumerate(bodies) if b.type in ("Planet", "Moon", "Asteroid")]
             max_mass = max(max(mass_data[i]) for i in body_mass_indices if mass_data[i])
@@ -742,7 +820,7 @@ def Visualize(energy_reset_period=Δt_reset):
                 current_body_max = 0
             if focused_mass >= current_body_max:
                 ax_mass.set_ylim(bodies[body_index].mass - 10**14, focused_mass * 1.0 + 10**14)
-        """
+        
 
         # Energy axis: energy_data[0] is whole-system; per-body energy is at index body_index + 1
         eidx = body_index + 1
