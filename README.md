@@ -1,6 +1,6 @@
 # N-Body-2D-Simulator
 A simple N-Body simulator made by @Dahzito (me) during my free time.
-Uses Newtonian Mechanics, and runs on the Verlet Integration method to compute the velocity and position of every body that is added to the program.
+Uses Newtonian Mechanics, and runs on the Yoshida 4th Order Integrator to compute the velocity and position of every body that is added to the program.
 
 To this program, I've also added, automatic star's luminosity and temperature calculation using the Mass-Luminosity relation and the Stefan-Boltzmann's law, force felt by every body in the N-Body system, a simple body vaporation system, flux received by every body in the n-body system, and then calculation of the temperature of every planet in it using the Stefan-Boltzmann's law, the body's albedo, surface emissivity and greenhouse factor, and gravity at the surface of every body to eventually see the Roche limit.
 
